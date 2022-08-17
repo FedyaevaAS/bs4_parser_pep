@@ -7,14 +7,21 @@ from prettytable import PrettyTable
 from constants import BASE_DIR, DATETIME_OUTPUT_FORMAT
 
 
+type_output_dict = {
+    'pretty': lambda x: pretty_output(x),
+    'file': lambda x, y: file_output(x, y),
+    None: lambda x: default_output(x)
+}
+
+
 def control_output(results, cli_args):
     output = cli_args.output
-    if output == 'pretty':
-        pretty_output(results)
-    elif output == 'file':
-        file_output(results, cli_args)
+    value = type_output_dict[output]
+    argcount = value.__code__.co_argcount
+    if argcount == 1:
+        value(results)
     else:
-        default_output(results)
+        value(results, cli_args)
 
 
 def default_output(results):

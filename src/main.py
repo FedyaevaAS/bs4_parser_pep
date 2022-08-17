@@ -3,6 +3,7 @@ import re
 import requests_cache
 
 from bs4 import BeautifulSoup
+from collections import defaultdict
 from tqdm import tqdm
 from urllib.parse import urljoin
 
@@ -14,9 +15,7 @@ from utils import find_tag, get_response
 
 def whats_new(session):
     whats_new_url = urljoin(MAIN_DOC_URL, 'whatsnew/')
-    response = get_response(session, whats_new_url)
-    if response is None:
-        return
+    response = get_response(session, whats_new_url, True)
     soup = BeautifulSoup(response.text, features='lxml')
     main_div = find_tag(soup, 'section', attrs={'id': 'what-s-new-in-python'})
     div_with_ul = find_tag(main_div, 'div', attrs={'class': 'toctree-wrapper'})
@@ -41,9 +40,7 @@ def whats_new(session):
 
 
 def latest_versions(session):
-    response = get_response(session, MAIN_DOC_URL)
-    if response is None:
-        return
+    response = get_response(session, MAIN_DOC_URL, True)
     soup = BeautifulSoup(response.text, features='lxml')
     sidebar = find_tag(soup, 'div', attrs={'class': 'sphinxsidebarwrapper'})
     ul_tags = sidebar.find_all('ul')
@@ -68,9 +65,7 @@ def latest_versions(session):
 
 def download(session):
     downloads_url = urljoin(MAIN_DOC_URL, 'download.html')
-    response = get_response(session, downloads_url)
-    if response is None:
-        return
+    response = get_response(session, downloads_url, True)
     soup = BeautifulSoup(response.text, features='lxml')
     main_tag = find_tag(soup, 'div', attrs={'role': 'main'})
     table_tag = find_tag(main_tag, 'table', attrs={'class': 'docutils'})
@@ -91,39 +86,34 @@ def download(session):
 
 
 def pep(session):
-    response = get_response(session, PEP_URL)
-    if response is None:
-        return
+    response = get_response(session, PEP_URL, True)
     soup = BeautifulSoup(response.text, features='lxml')
     main_tag = find_tag(soup, 'section', attrs={'id': 'numerical-index'})
     table_tag = find_tag(main_tag, 'tbody')
     rows = table_tag.find_all('tr')
     pep_quantity = len(rows)
-    status_dict = {}
-    for row in rows:
+    status_dict = defaultdict(int)
+    for row in tqdm(rows):
         card_a_tag = find_tag(row, 'a')
         href = card_a_tag['href']
         link = urljoin(PEP_URL, href)
         status_td_tag = find_tag(row, 'td')
         status_in_table = EXPECTED_STATUS[status_td_tag.text[1:]]
-        response = session.get(link)
+        response = get_response(session, link)
+        if response is None:
+            continue
         soup = BeautifulSoup(response.text, features='lxml')
         status_string = soup.find(string='Status')
         dt = status_string.find_parent('dt')
         status_in_card = dt.next_sibling.next_sibling.text
-        first_condition = status_in_card in status_dict
-        second_condition = status_in_card in status_in_table
-        if not first_condition and second_condition:
-            status_dict[status_in_card] = 1
-        elif not second_condition:
-            logging.info(f'Несовпадающие статусы:\n{link}\n'
-                         f'Статус в карточке:{status_in_card}\n'
-                         f'Ожидаемые статусы: {status_in_table}')
-        else:
+        if status_in_card in status_in_table:
             status_dict[status_in_card] += 1
+        else:
+            logging.info(f'Несовпадающие статусы:\n  {link}\n'
+                         f'  Статус в карточке: {status_in_card}\n'
+                         f'  Ожидаемые статусы: {status_in_table}')
     results = [('Статус', 'Количество')]
-    for status, quantity in status_dict.items():
-        results.append((status, quantity))
+    results.extend(status_dict.items())
     results.append(('Total ', pep_quantity))
     return results
 
